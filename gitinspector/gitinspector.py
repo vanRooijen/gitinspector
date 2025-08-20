@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # coding: utf-8
 #
 # Copyright © 2012-2015 Ejwa Software. All rights reserved.
@@ -19,200 +20,177 @@
 
 from __future__ import print_function
 from __future__ import unicode_literals
-import atexit
-import getopt
-import os
-import sys
-from .blame import Blame
-from .changes import Changes
-from .config import GitConfig
-from .metrics import MetricsLogic
-from . import (basedir, clone, extensions, filtering, format, help, interval,
-               localization, optval, terminal, version)
-from .output import outputable
-from .output.blameoutput import BlameOutput
-from .output.changesoutput import ChangesOutput
-from .output.extensionsoutput import ExtensionsOutput
-from .output.filteringoutput import FilteringOutput
-from .output.metricsoutput import MetricsOutput
-from .output.responsibilitiesoutput import ResponsibilitiesOutput
-from .output.timelineoutput import TimelineOutput
 
+from . import localization
 localization.init()
 
-class Runner(object):
-	def __init__(self):
-		self.hard = False
-		self.include_metrics = False
-		self.list_file_types = False
-		self.localize_output = False
-		self.responsibilities = False
-		self.grading = False
-		self.timeline = False
-		self.useweeks = False
+import atexit
+from . import basedir
+from . import blame
+from . import changes
+from . import clone
+from . import config
+from . import extensions
+from . import filtering
+from . import format
+from . import help
+from . import interval
+import getopt
+from . import metrics
+import os
+from . import optval
+from . import outputable
+from . import responsibilities
+import sys
+from . import terminal
+from . import timeline
+from . import version
 
-	def process(self, repos):
-		localization.check_compatibility(version.__version__)
+class Runner:
+    def __init__(self):
+        self.hard = False
+        self.include_metrics = False
+        self.list_file_types = False
+        self.localize_output = False
+        self.repo = "."
+        self.responsibilities = False
+        self.grading = False
+        self.timeline = False
+        self.useweeks = False
 
-		if not self.localize_output:
-			localization.disable()
+    def output(self):
+        localization.check_compatibility(version.__version__)
 
-		terminal.skip_escapes(not sys.stdout.isatty())
-		terminal.set_stdout_encoding()
-		previous_directory = os.getcwd()
-		summed_blames = Blame.__new__(Blame)
-		summed_changes = Changes.__new__(Changes)
-		summed_metrics = MetricsLogic.__new__(MetricsLogic)
+        if not self.localize_output:
+            localization.disable()
 
-		for repo in repos:
-			os.chdir(repo.location)
-			repo = repo if len(repos) > 1 else None
-			changes = Changes(repo, self.hard)
-			summed_blames += Blame(repo, self.hard, self.useweeks, changes)
-			summed_changes += changes
+        terminal.skip_escapes(not sys.stdout.isatty())
+        terminal.set_stdout_encoding()
+        previous_directory = os.getcwd()
 
-			if self.include_metrics:
-				summed_metrics += MetricsLogic()
+        os.chdir(self.repo)
+        absolute_path = basedir.get_basedir_git()
+        os.chdir(absolute_path)
+        format.output_header()
+        outputable.output(changes.ChangesOutput(self.hard))
 
-			if sys.stdout.isatty() and format.is_interactive_format():
-				terminal.clear_row()
-		else:
-			os.chdir(previous_directory)
+        if changes.get(self.hard).get_commits():
+            outputable.output(blame.BlameOutput(changes.get(self.hard), self.hard, self.useweeks))
 
-		format.output_header(repos)
-		outputable.output(ChangesOutput(summed_changes))
+            if self.timeline:
+                outputable.output(timeline.Timeline(changes.get(self.hard), self.useweeks))
 
-		if summed_changes.get_commits():
-			outputable.output(BlameOutput(summed_changes, summed_blames))
+            if self.include_metrics:
+                outputable.output(metrics.Metrics())
 
-			if self.timeline:
-				outputable.output(TimelineOutput(summed_changes, self.useweeks))
+            if self.responsibilities:
+                outputable.output(responsibilities.ResponsibilitiesOutput(self.hard, self.useweeks))
 
-			if self.include_metrics:
-				outputable.output(MetricsOutput(summed_metrics))
+            outputable.output(filtering.Filtering())
 
-			if self.responsibilities:
-				outputable.output(ResponsibilitiesOutput(summed_changes, summed_blames))
+            if self.list_file_types:
+                outputable.output(extensions.Extensions())
 
-			outputable.output(FilteringOutput())
-
-			if self.list_file_types:
-				outputable.output(ExtensionsOutput())
-
-		format.output_footer()
-		os.chdir(previous_directory)
+        format.output_footer()
+        os.chdir(previous_directory)
 
 def __check_python_version__():
-	if sys.version_info < (2, 6):
-		python_version = str(sys.version_info[0]) + "." + str(sys.version_info[1])
-		sys.exit(_("gitinspector requires at least Python 2.6 to run (version {0} was found).").format(python_version))
-
-def __get_validated_git_repos__(repos_relative):
-	if not repos_relative:
-		repos_relative = "."
-
-	repos = []
-
-	#Try to clone the repos or return the same directory and bail out.
-	for repo in repos_relative:
-		cloned_repo = clone.create(repo)
-
-		if cloned_repo.name == None:
-			cloned_repo.location = basedir.get_basedir_git(cloned_repo.location)
-			cloned_repo.name = os.path.basename(cloned_repo.location)
-
-		repos.append(cloned_repo)
-
-	return repos
+    if sys.version_info < (2, 6):
+        python_version = str(sys.version_info[0]) + "." + str(sys.version_info[1])
+        sys.exit(_("gitinspector requires at least Python 2.6 to run (version {0} was found).").format(python_version))
 
 def main():
-	terminal.check_terminal_encoding()
-	terminal.set_stdin_encoding()
-	argv = terminal.convert_command_line_to_utf8()
-	run = Runner()
-	repos = []
+    terminal.check_terminal_encoding()
+    terminal.set_stdin_encoding()
+    argv = terminal.convert_command_line_to_utf8()
+    __run__ = Runner()
 
-	try:
-		opts, args = optval.gnu_getopt(argv[1:], "f:F:hHlLmrTwx:", ["exclude=", "file-types=", "format=",
-		                                         "hard:true", "help", "list-file-types:true", "localize-output:true",
-		                                         "metrics:true", "responsibilities:true", "since=", "grading:true",
-		                                         "timeline:true", "until=", "version", "weeks:true"])
-		repos = __get_validated_git_repos__(set(args))
+    try:
+        __opts__, __args__ = optval.gnu_getopt(argv[1:], "f:F:hHlLmrTwx:", ["exclude=", "file-types=", "format=",
+                                                         "hard:true", "help", "list-file-types:true",
+                                                         "localize-output:true", "metrics:true", "responsibilities:true",
+                                                         "since=", "grading:true", "timeline:true", "until=", "version",
+                                                         "weeks:true"])
+        for arg in __args__:
+            __run__.repo = arg
 
-		#We need the repos above to be set before we read the git config.
-		GitConfig(run, repos[-1].location).read()
-		clear_x_on_next_pass = True
+        #Try to clone the repo or return the same directory and bail out.
+        __run__.repo = clone.create(__run__.repo)
 
-		for o, a in opts:
-			if o in("-h", "--help"):
-				help.output()
-				sys.exit(0)
-			elif o in("-f", "--file-types"):
-				extensions.define(a)
-			elif o in("-F", "--format"):
-				if not format.select(a):
-					raise format.InvalidFormatError(_("specified output format not supported."))
-			elif o == "-H":
-				run.hard = True
-			elif o == "--hard":
-				run.hard = optval.get_boolean_argument(a)
-			elif o == "-l":
-				run.list_file_types = True
-			elif o == "--list-file-types":
-				run.list_file_types = optval.get_boolean_argument(a)
-			elif o == "-L":
-				run.localize_output = True
-			elif o == "--localize-output":
-				run.localize_output = optval.get_boolean_argument(a)
-			elif o == "-m":
-				run.include_metrics = True
-			elif o == "--metrics":
-				run.include_metrics = optval.get_boolean_argument(a)
-			elif o == "-r":
-				run.responsibilities = True
-			elif o == "--responsibilities":
-				run.responsibilities = optval.get_boolean_argument(a)
-			elif o == "--since":
-				interval.set_since(a)
-			elif o == "--version":
-				version.output()
-				sys.exit(0)
-			elif o == "--grading":
-				grading = optval.get_boolean_argument(a)
-				run.include_metrics = grading
-				run.list_file_types = grading
-				run.responsibilities = grading
-				run.grading = grading
-				run.hard = grading
-				run.timeline = grading
-				run.useweeks = grading
-			elif o == "-T":
-				run.timeline = True
-			elif o == "--timeline":
-				run.timeline = optval.get_boolean_argument(a)
-			elif o == "--until":
-				interval.set_until(a)
-			elif o == "-w":
-				run.useweeks = True
-			elif o == "--weeks":
-				run.useweeks = optval.get_boolean_argument(a)
-			elif o in("-x", "--exclude"):
-				if clear_x_on_next_pass:
-					clear_x_on_next_pass = False
-					filtering.clear()
-				filtering.add(a)
+        #We need the repo above to be set before we read the git config.
+        config.init(__run__)
+        clear_x_on_next_pass = True
 
-		__check_python_version__()
-		run.process(repos)
+        for o, a in __opts__:
+            if o in("-h", "--help"):
+                help.output()
+                sys.exit(0)
+            elif o in("-f", "--file-types"):
+                extensions.define(a)
+            elif o in("-F", "--format"):
+                if not format.select(a):
+                    raise format.InvalidFormatError(_("specified output format not supported."))
+            elif o == "-H":
+                __run__.hard = True
+            elif o == "--hard":
+                __run__.hard = optval.get_boolean_argument(a)
+            elif o == "-l":
+                __run__.list_file_types = True
+            elif o == "--list-file-types":
+                __run__.list_file_types = optval.get_boolean_argument(a)
+            elif o == "-L":
+                __run__.localize_output = True
+            elif o == "--localize-output":
+                __run__.localize_output = optval.get_boolean_argument(a)
+            elif o == "-m":
+                __run__.include_metrics = True
+            elif o == "--metrics":
+                __run__.include_metrics = optval.get_boolean_argument(a)
+            elif o == "-r":
+                __run__.responsibilities = True
+            elif o == "--responsibilities":
+                __run__.responsibilities = optval.get_boolean_argument(a)
+            elif o == "--since":
+                interval.set_since(a)
+            elif o == "--version":
+                version.output()
+                sys.exit(0)
+            elif o == "--grading":
+                grading = optval.get_boolean_argument(a)
+                __run__.include_metrics = grading
+                __run__.list_file_types = grading
+                __run__.responsibilities = grading
+                __run__.grading = grading
+                __run__.hard = grading
+                __run__.timeline = grading
+                __run__.useweeks = grading
+            elif o == "-T":
+                __run__.timeline = True
+            elif o == "--timeline":
+                __run__.timeline = optval.get_boolean_argument(a)
+            elif o == "--until":
+                interval.set_until(a)
+            elif o == "-w":
+                __run__.useweeks = True
+            elif o == "--weeks":
+                __run__.useweeks = optval.get_boolean_argument(a)
+            elif o in("-x", "--exclude"):
+                if clear_x_on_next_pass:
+                    clear_x_on_next_pass = False
+                    filtering.clear()
+                filtering.add(a)
 
-	except (filtering.InvalidRegExpError, format.InvalidFormatError, optval.InvalidOptionArgument, getopt.error) as exception:
-		print(sys.argv[0], "\b:", exception.msg, file=sys.stderr)
-		print(_("Try `{0} --help' for more information.").format(sys.argv[0]), file=sys.stderr)
-		sys.exit(2)
+        __check_python_version__()
+        __run__.output()
+
+    except (filtering.InvalidRegExpError, format.InvalidFormatError, optval.InvalidOptionArgument, getopt.error) as exception:
+        print(sys.argv[0], "\b:", exception.msg, file=sys.stderr)
+        print(_("Try `{0} --help' for more information.").format(sys.argv[0]), file=sys.stderr)
+        sys.exit(2)
 
 @atexit.register
 def cleanup():
-	clone.delete()
+    clone.delete()
 
 if __name__ == "__main__":
-	main()
+    main()

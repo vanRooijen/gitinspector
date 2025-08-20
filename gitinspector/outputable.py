@@ -1,6 +1,6 @@
 # coding: utf-8
 #
-# Copyright © 2013-2014 Ejwa Software. All rights reserved.
+# Copyright © 2012-2013 Ejwa Software. All rights reserved.
 #
 # This file is part of gitinspector.
 #
@@ -17,22 +17,24 @@
 # You should have received a copy of the GNU General Public License
 # along with gitinspector. If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import print_function
 from __future__ import unicode_literals
-try:
-    from urllib.parse import urlencode
-except:
-    from urllib import urlencode
 from . import format
-import hashlib
 
-def get_url(email, size=20):
-    md5hash = hashlib.md5(email.encode("utf-8").lower().strip()).hexdigest()
-    base_url = "https://www.gravatar.com/avatar/" + md5hash
-    params = None
+class Outputable(object):
+    def output_html(self):
+        print(_("HTML output not yet supported in") + " \"" + self.__class__.__name__ + "\".")
 
-    if format.get_selected() == "html":
-        params = {"default": "identicon", "size": size}
-    elif format.get_selected() == "xml":
-        params = {"default": "identicon"}
+    def output_text(self):
+        print(_("Text output not yet supported in") + " \"" + self.__class__.__name__ + "\".")
 
-    return base_url + "?" + urlencode(params)
+    def output_xml(self):
+        print(_("XML output not yet supported in") + " \"" + self.__class__.__name__ + "\".")
+
+def output(outputable):
+    if format.get_selected() == "html" or format.get_selected() == "htmlembedded":
+        outputable.output_html()
+    elif format.get_selected() == "text":
+        outputable.output_text()
+    else:
+        outputable.output_xml()

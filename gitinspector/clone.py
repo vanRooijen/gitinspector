@@ -18,41 +18,30 @@
 # along with gitinspector. If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import unicode_literals
-import os
+
 import shutil
 import subprocess
 import sys
 import tempfile
 
-try:
-	from urllib.parse import urlparse
-except:
-	from urlparse import urlparse
-
-__cloned_paths__ = []
+__cloned_path__ = None
 
 def create(url):
-	class Repository(object):
-		def __init__(self, name, location):
-			self.name = name
-			self.location = location
+    if url.startswith("file://") or url.startswith("git://") or url.startswith("http://") or \
+       url.startswith("https://") or url.startswith("ssh://"):
+        global __cloned_path__
 
-	parsed_url = urlparse(url)
+        location = tempfile.mkdtemp(suffix=".gitinspector")
+        git_clone = subprocess.Popen(["git", "clone", url, location], bufsize=1, stdout=sys.stderr)
+        git_clone.wait()
 
-	if parsed_url.scheme == "file" or parsed_url.scheme == "git" or parsed_url.scheme == "http" or \
-	   parsed_url.scheme == "https" or parsed_url.scheme == "ssh":
-		path = tempfile.mkdtemp(suffix=".gitinspector")
-		git_clone = subprocess.Popen(["git", "clone", url, path], bufsize=1, stdout=sys.stderr)
-		git_clone.wait()
+        if git_clone.returncode != 0:
+            sys.exit(git_clone.returncode)
 
-		if git_clone.returncode != 0:
-			sys.exit(git_clone.returncode)
-
-		__cloned_paths__.append(path)
-		return Repository(os.path.basename(parsed_url.path), path)
-
-	return Repository(None, os.path.abspath(url))
+        __cloned_path__ = location
+        return location
+    return url
 
 def delete():
-	for path in __cloned_paths__:
-		shutil.rmtree(path, ignore_errors=True)
+    if __cloned_path__:
+        shutil.rmtree(__cloned_path__, ignore_errors=True)
